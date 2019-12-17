@@ -23,13 +23,13 @@ brew cask install selfcontrol
 Download this repository to a directory on your system (e.g., `~/auto-selfcontrol/`).
 
 ```sh
-chmod +x auto-selfcontrol
+chmod +x auto-selfcontrol.py
 ```
 
 Run from this specific repository
 
 ```sh
-./auto-selfcontrol <config|activate|help>
+./auto-selfcontrol.py --help
 ```
 
 Or create a symlink in your `/usr/local/bin` folder to access it from anywhere.
@@ -39,14 +39,14 @@ Or create a symlink in your `/usr/local/bin` folder to access it from anywhere.
 Edit the time configuration (see [Configuration](#configuration)) first:
 
 ```sh
-auto-selfcontrol config
+./auto-selfcontrol.py config
 ```
 
 When your block-schedule in [`config.json`](config.json) is ready, activate it by
 running:
 
 ```sh
-auto-selfcontrol activate
+./auto-selfcontrol.py activate
 ```
 
 __Important:__ If you change [`config.json`](config.json) later, you have to call the

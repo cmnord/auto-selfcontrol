@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from argparse import ArgumentParser
 import datetime
 from dataclasses import dataclass
 from Foundation import (
@@ -16,7 +17,10 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence
 
 
 LAUNCHLIST_PATH = "/Library/LaunchDaemons/com.parrot-bytes.auto-selfcontrol.plist"
-
+GITHUB_CONFIG = "https://raw.githubusercontent.com/andreasgrill/auto-selfcontrol/master/config.json"
+HOME = os.environ["HOME"]
+CONFIG_DIR = os.path.join(HOME, "dev/auto-selfcontrol")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 
 class AutoSelfControlException(Exception):
     pass
@@ -293,11 +297,7 @@ def get_osx_usernames() -> List[str]:
     return [s.strip().decode("utf-8") for s in output.splitlines()]
 
 
-def main() -> None:
-    HOME = os.environ["HOME"]
-    CONFIG_DIR = os.path.join(HOME, "dev/auto-selfcontrol")
-    CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
-
+def activate() -> None:
     if os.geteuid() != 0:
         filename = os.path.realpath(__file__)
         raise AutoSelfControlException(
@@ -320,6 +320,41 @@ def main() -> None:
         print(f"> {exc}")
         return
 
+def config() -> int:
+    # If no "config.json" in ~/.config/auto-selfcontrol/
+    if not os.path.exists(CONFIG_FILE):
+        # If existing "config.json" in the cwd, copy it
+        if "config.json" in os.listdir("."):
+            subprocess.call(["cp", "config.json", CONFIG_FILE])
+            print(f"> Copied config.json from the current directory to {CONFIG_FILE}")
+        else:
+            # else download sample config from github repository
+            subprocess.call(["curl", "-L", "-s", GITHUB_CONFIG, "-o", CONFIG_FILE])
+            print(f"> Downloaded sample configuration to {CONFIG_FILE}")
+
+    print(f"> Opening {CONFIG_FILE}")
+    # Opening with default editor set as $EDITOR
+    if "EDITOR" in os.environ:
+        return subprocess.call([os.environ["EDITOR"], CONFIG_FILE])
+    # Or with default GUI text editor (txt files > Open with...)
+    return subprocess.call(["open", "-t", CONFIG_FILE])
 
 if __name__ == "__main__":
-    main()
+    parser = ArgumentParser(
+        description="Auto-SelfControl (c) Andreas Grill\nSmall utility to schedule "
+        "start and stop times of SelfControl. More instructions at "
+        "https://github.com/andreasgrill/auto-selfcontrol"
+    )
+    parser.add_argument(
+        "action",
+        choices=("config", "activate"),
+        help="Open the schedule [config] file in a text editor to set up weekly "
+        "parameters or [activate] the automatic start/stop of SelfControl according to "
+        "schedules defined in configuration",
+    )
+
+    args = parser.parse_args()
+    if args.action == "config":
+        config()
+    elif args.action == "activate":
+        activate()
