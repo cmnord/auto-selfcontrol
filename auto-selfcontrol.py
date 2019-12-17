@@ -15,19 +15,18 @@ from optparse import OptionParser
 def load_config(config_files):
     """
     Load JSON configuration files.
-
     The latter configs overwrite the previous configs.
     """
-    config = dict()
+    config = {}
 
-    for file in config_files:
+    for config_file in config_files:
         try:
-            with open(file, 'rt') as cfg:
+            with open(config_file, 'rt') as cfg:
                 config.update(json.load(cfg))
         except ValueError as exception:
             exit_with_error("The JSON config file {configfile} is not correctly formatted."
                             "The following exception was raised:\
-                            \n{exc}".format(configfile=file, exc=exception))
+                            \n{exc}".format(configfile=config_file, exc=exception))
 
     return config
 
@@ -69,7 +68,7 @@ def run(config):
 def check_if_running(username):
     """Check if self-control is already running."""
     defaults = get_selfcontrol_settings(username)
-    return defaults.has_key("BlockStartedDate") and not NSDate.distantFuture().isEqualToDate_(defaults["BlockStartedDate"])
+    return "BlockStartedDate" in defaults and not NSDate.distantFuture().isEqualToDate_(defaults["BlockStartedDate"])
 
 
 def is_schedule_active(schedule):
@@ -201,7 +200,7 @@ def install(config):
 
 def check_config(config):
     """ checks whether the config file is correct """
-    if not config.has_key("username"):
+    if "username" not in config:
         exit_with_error("No username specified in config.")
     if config["username"] not in get_osx_usernames():
         exit_with_error(
@@ -209,14 +208,14 @@ def check_config(config):
                 "If you have trouble finding it, just enter the command 'whoami'\n" \
                 "in your terminal.".format(
                         username=config["username"]))
-    if not config.has_key("selfcontrol-path"):
+    if "selfcontrol-path" not in config:
         exit_with_error("The setting 'selfcontrol-path' is required and must point to the location of SelfControl.")
     if not os.path.exists(config["selfcontrol-path"]):
         exit_with_error(
                 "The setting 'selfcontrol-path' does not point to the correct location of SelfControl. " \
                 "Please make sure to use an absolute path and include the '.app' extension, " \
                 "e.g. /Applications/SelfControl.app")
-    if not config.has_key("block-schedules"):
+    if "block-schedules" not in config:
         exit_with_error("The setting 'block-schedules' is required.")
     if len(config["block-schedules"]) == 0:
         exit_with_error("You need at least one schedule in 'block-schedules'.")
