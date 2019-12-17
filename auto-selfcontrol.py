@@ -1,118 +1,269 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
-import subprocess
-import os
-import json
 import datetime
-import syslog
-import traceback
-import sys
-from Foundation import NSUserDefaults, CFPreferencesSetAppValue, CFPreferencesAppSynchronize, NSDate
+from dataclasses import dataclass
+from Foundation import (
+    NSUserDefaults,
+    CFPreferencesSetAppValue,
+    CFPreferencesAppSynchronize,
+    NSDate,
+)
+import json
+import os
 from pwd import getpwnam
-from optparse import OptionParser
+import subprocess
+from typing import Any, Dict, Iterator, List, Optional, Sequence
 
 
-def load_config(config_files):
-    """
-    Load JSON configuration files.
-    The latter configs overwrite the previous configs.
-    """
-    config = {}
+LAUNCHLIST_PATH = "/Library/LaunchDaemons/com.parrot-bytes.auto-selfcontrol.plist"
 
-    for config_file in config_files:
+
+class AutoSelfControlException(Exception):
+    pass
+
+
+class AlreadyRunningException(AutoSelfControlException):
+    """ Raised if self-control is already running. """
+
+    pass
+
+
+class NoScheduleActiveException(AutoSelfControlException):
+    """ Raised if there is no schedule active for this time frame. """
+
+    pass
+
+
+class ConfigException(AutoSelfControlException):
+    """ Raised if the config file does not follow the schema. """
+
+    pass
+
+
+@dataclass
+class Schedule:
+    weekday: Optional[int]
+    start_hour: int
+    start_minute: int
+    end_hour: int
+    end_minute: int
+    block_as_whitelist: Optional[bool]
+    host_blacklist: Optional[List[str]]
+
+    @staticmethod
+    def from_config(config: Dict[str, Any]) -> "Schedule":
+        return Schedule(
+            weekday=config.get("weekday"),
+            start_hour=config["start-hour"],
+            start_minute=config["start-minute"],
+            end_hour=config["end-hour"],
+            end_minute=config["end-minute"],
+            block_as_whitelist=config.get("block-as-whitelist"),
+            host_blacklist=config.get("host-blacklist"),
+        )
+
+    def weekdays(self) -> Sequence[int]:
+        """Return a list of weekdays the specified schedule is active."""
+        return [self.weekday] if self.weekday is not None else range(1, 8)
+
+    def is_active(self) -> bool:
+        """Check if we are right now in the provided schedule or not."""
+        now = datetime.datetime.today()
+        starttime = datetime.datetime(
+            now.year, now.month, now.day, self.start_hour, self.start_minute
+        )
+        endtime = datetime.datetime(
+            now.year, now.month, now.day, self.end_hour, self.end_minute
+        )
+        duration = endtime - starttime
+
+        for weekday in self.weekdays():
+            weekday_diff = now.isoweekday() % 7 - weekday % 7
+            if weekday_diff == 0:
+                # schedule's weekday is today
+                return (
+                    starttime <= now and endtime >= now
+                    if duration.days == 0
+                    else starttime <= now
+                )
+            if weekday_diff == 1 or weekday_diff == -6:
+                # schedule's weekday was yesterday
+                return duration.days != 0 and now <= endtime
+        return False
+
+    def duration_minutes(self) -> int:
+        """Return the minutes left until the schedule's end-hour and end-minute are reached."""
+        now = datetime.datetime.today()
+        endtime = datetime.datetime(
+            now.year, now.month, now.day, self.end_hour, self.end_minute
+        )
+        duration = endtime - now
+        return int(round(duration.seconds / 60.0))
+
+
+@dataclass
+class Config:
+    username: str
+    selfcontrol_path: str
+    block_schedules: List[Schedule]
+    host_blacklist: Optional[List[str]]
+    legacy_mode: Optional[bool]
+
+    @staticmethod
+    def from_file(filename: str) -> "Config":
+        """ Load JSON configuration file. The latter configs overwrite the previous
+        configs. """
+        with open(filename, "rt") as f:
+            config = json.load(f)
+
+        if "username" not in config:
+            raise ConfigException("No username specified in config.")
+        if config["username"] not in get_osx_usernames():
+            raise ConfigException(
+                f"Username '{config['username']}' unknown. Please use your OSX "
+                "username instead. If you have trouble finding it, just enter the "
+                "command 'whoami' in your terminal."
+            )
+        if "selfcontrol-path" not in config:
+            raise ConfigException(
+                "The setting 'selfcontrol-path' is required and must point to the "
+                "location of SelfControl."
+            )
+        if not os.path.exists(config["selfcontrol-path"]):
+            raise ConfigException(
+                "The setting 'selfcontrol-path' does not point to the correct "
+                "location of SelfControl. Please make sure to use an absolute path and "
+                "include the '.app' extension, e.g. /Applications/SelfControl.app"
+            )
+        if "block-schedules" not in config:
+            raise ConfigException("The setting 'block-schedules' is required.")
+        if len(config["block-schedules"]) == 0:
+            raise ConfigException(
+                "You need at least one schedule in 'block-schedules'."
+            )
+        if "host-blacklist" not in config:
+            print(
+                "WARNING: It is not recommended to directly use SelfControl's "
+                "blacklist. Please use the 'host-blacklist' setting instead."
+            )
+
+        return Config(
+            username=config["username"],
+            selfcontrol_path=config["selfcontrol-path"],
+            block_schedules=[
+                Schedule.from_config(s) for s in config["block-schedules"]
+            ],
+            host_blacklist=config.get("host-blacklist"),
+            legacy_mode=config.get("legacy-mode"),
+        )
+
+    def launchscript_startintervals(self) -> Iterator[str]:
+        """Return the string of the launchscript start intervals."""
+        # entries = list()
+        for schedule in self.block_schedules:
+            for weekday in schedule.weekdays():
+                yield f"""<dict>
+                        <key>Weekday</key>
+                        <integer>{weekday}</integer>
+                        <key>Minute</key>
+                        <integer>{schedule.start_minute}</integer>
+                        <key>Hour</key>
+                        <integer>{schedule.start_hour}</integer>
+                    </dict>
+                    """
+
+    def launchscript(self) -> str:
+        """Return the string of the launchscript."""
+        path = os.path.realpath(__file__)
+        start_intervals = "".join(self.launchscript_startintervals())
+        return f"""<?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Label</key>
+            <string>com.parrot-bytes.auto-selfcontrol</string>
+            <key>ProgramArguments</key>
+            <array>
+                <string>/usr/bin/python</string>
+                <string>{path}</string>
+                <string>-r</string>
+            </array>
+            <key>StartCalendarInterval</key>
+            <array>
+                {start_intervals}</array>
+            <key>RunAtLoad</key>
+            <true/>
+        </dict>
+        </plist>"""
+
+    def install(self) -> int:
+        """ Installs auto-selfcontrol """
+        # Check for existing plist
+        if os.path.exists(LAUNCHLIST_PATH):
+            subprocess.call(["launchctl", "unload", "-w", LAUNCHLIST_PATH])
+            os.unlink(LAUNCHLIST_PATH)
+            print("> Removed previous installation files")
+
+        launchplist_script = self.launchscript()
+
+        with open(LAUNCHLIST_PATH, "w") as f:
+            f.write(launchplist_script)
+
+        return subprocess.call(["launchctl", "load", "-w", LAUNCHLIST_PATH])
+
+    def run(self) -> int:
+        """ Start self-control with custom parameters, depending on the weekday and
+        the config. Return the duration in minutes for which self-control will run.
+        """
+        if running(self.username):
+            raise AlreadyRunningException("SelfControl is already running.")
+
         try:
-            with open(config_file, 'rt') as cfg:
-                config.update(json.load(cfg))
-        except ValueError as exception:
-            exit_with_error("The JSON config file {configfile} is not correctly formatted."
-                            "The following exception was raised:\
-                            \n{exc}".format(configfile=config_file, exc=exception))
+            schedule = next(s for s in self.block_schedules if s.is_active())
+        except StopIteration:
+            raise NoScheduleActiveException(
+                "No schedule is active at the moment. Shutting down."
+            )
 
-    return config
+        duration = schedule.duration_minutes()
+        set_selfcontrol_setting("BlockDuration", duration, self.username)
+        set_selfcontrol_setting(
+            "BlockAsWhitelist",
+            1 if schedule.block_as_whitelist is True else 0,
+            self.username,
+        )
 
+        if schedule.host_blacklist is not None:
+            set_selfcontrol_setting(
+                "HostBlacklist", schedule.host_blacklist, self.username
+            )
+        elif self.host_blacklist is not None:
+            set_selfcontrol_setting("HostBlacklist", self.host_blacklist, self.username)
 
-def run(config):
-    """Start self-control with custom parameters, depending on the weekday and the config."""
-    if check_if_running(config["username"]):
-        syslog.syslog(syslog.LOG_ALERT, "SelfControl is already running, ignore current execution of Auto-SelfControl.")
-        exit(2)
+        # In legacy mode manually set the BlockStartedDate, this should not be required anymore in future versions
+        # of SelfControl.
+        if self.legacy_mode is True:
+            set_selfcontrol_setting("BlockStartedDate", NSDate.date(), self.username)
 
-    try:
-        schedule = next(s for s in config["block-schedules"] if is_schedule_active(s))
-    except StopIteration:
-        syslog.syslog(syslog.LOG_ALERT, "No schedule is active at the moment. Shutting down.")
-        exit(0)
+        # Start SelfControl
+        # TODO: injection vulnerability
+        user_id = str(getpwnam(self.username).pw_uid)
+        os.system(
+            f"{self.selfcontrol_path}/Contents/MacOS/org.eyebeam.SelfControl {user_id} --install"
+        )
 
-    duration = get_duration_minutes(schedule["end-hour"], schedule["end-minute"])
-
-    set_selfcontrol_setting("BlockDuration", duration, config["username"])
-    set_selfcontrol_setting("BlockAsWhitelist", 1 if schedule.get("block-as-whitelist", False) else 0,
-                            config["username"])
-
-    if schedule.get("host-blacklist", None) is not None:
-        set_selfcontrol_setting("HostBlacklist", schedule["host-blacklist"], config["username"])
-    elif config.get("host-blacklist", None) is not None:
-        set_selfcontrol_setting("HostBlacklist", config["host-blacklist"], config["username"])
-
-    # In legacy mode manually set the BlockStartedDate, this should not be required anymore in future versions
-    # of SelfControl.
-    if config.get("legacy-mode", True):
-        set_selfcontrol_setting("BlockStartedDate", NSDate.date(), config["username"])
-
-    # Start SelfControl
-    os.system("{path}/Contents/MacOS/org.eyebeam.SelfControl {userId} --install".format(path=config["selfcontrol-path"], userId=str(getpwnam(config["username"]).pw_uid)))
-
-    syslog.syslog(syslog.LOG_ALERT, "SelfControl started for {min} minute(s).".format(min=duration))
+        return duration
 
 
-def check_if_running(username):
+def running(username: str) -> bool:
     """Check if self-control is already running."""
     defaults = get_selfcontrol_settings(username)
-    return "BlockStartedDate" in defaults and not NSDate.distantFuture().isEqualToDate_(defaults["BlockStartedDate"])
+    return "BlockStartedDate" in defaults and not NSDate.distantFuture().isEqualToDate_(
+        defaults["BlockStartedDate"]
+    )
 
 
-def is_schedule_active(schedule):
-    """Check if we are right now in the provided schedule or not."""
-    currenttime = datetime.datetime.today()
-    starttime = datetime.datetime(currenttime.year, currenttime.month, currenttime.day, schedule["start-hour"],
-                                  schedule["start-minute"])
-    endtime = datetime.datetime(currenttime.year, currenttime.month, currenttime.day, schedule["end-hour"],
-                                schedule["end-minute"])
-    d = endtime - starttime
-
-    for weekday in get_schedule_weekdays(schedule):
-        weekday_diff = currenttime.isoweekday() % 7 - weekday % 7
-
-        if weekday_diff == 0:
-            # schedule's weekday is today
-            result = starttime <= currenttime and endtime >= currenttime if d.days == 0 else starttime <= currenttime
-        elif weekday_diff == 1 or weekday_diff == -6:
-            # schedule's weekday was yesterday
-            result = d.days != 0 and currenttime <= endtime
-        else:
-            # schedule's weekday was on any other day.
-            result = False
-
-        if result:
-            return result
-
-    return False
-
-
-def get_duration_minutes(endhour, endminute):
-    """Return the minutes left until the schedule's end-hour and end-minute are reached."""
-    currenttime = datetime.datetime.today()
-    endtime = datetime.datetime(currenttime.year, currenttime.month, currenttime.day, endhour, endminute)
-    d = endtime - currenttime
-    return int(round(d.seconds / 60.0))
-
-
-def get_schedule_weekdays(schedule):
-    """Return a list of weekdays the specified schedule is active."""
-    return [schedule["weekday"]] if schedule.get("weekday", None) is not None else range(1, 8)
-
-
-def set_selfcontrol_setting(key, value, username):
+def set_selfcontrol_setting(key: str, value: Any, username: str) -> None:
     """Set a single default setting of SelfControl for the provided username."""
     NSUserDefaults.resetStandardUserDefaults()
     originalUID = os.geteuid()
@@ -123,7 +274,7 @@ def set_selfcontrol_setting(key, value, username):
     os.seteuid(originalUID)
 
 
-def get_selfcontrol_settings(username):
+def get_selfcontrol_settings(username: str) -> Dict[str, Any]:
     """Return all default settings of SelfControl for the provided username."""
     NSUserDefaults.resetStandardUserDefaults()
     originalUID = os.geteuid()
@@ -137,143 +288,38 @@ def get_selfcontrol_settings(username):
     return result
 
 
-def get_launchscript(config):
-    """Return the string of the launchscript."""
-    return '''<?xml version="1.0" encoding="UTF-8"?>
-    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-    <plist version="1.0">
-    <dict>
-        <key>Label</key>
-        <string>com.parrot-bytes.auto-selfcontrol</string>
-        <key>ProgramArguments</key>
-        <array>
-            <string>/usr/bin/python</string>
-            <string>{path}</string>
-            <string>-r</string>
-        </array>
-        <key>StartCalendarInterval</key>
-        <array>
-            {startintervals}</array>
-        <key>RunAtLoad</key>
-        <true/>
-    </dict>
-    </plist>'''.format(path=os.path.realpath(__file__), startintervals="".join(get_launchscript_startintervals(config)))
-
-
-def get_launchscript_startintervals(config):
-    """Return the string of the launchscript start intervals."""
-    # entries = list()
-    for schedule in config["block-schedules"]:
-        for weekday in get_schedule_weekdays(schedule):
-            yield '''<dict>
-                    <key>Weekday</key>
-                    <integer>{weekday}</integer>
-                    <key>Minute</key>
-                    <integer>{startminute}</integer>
-                    <key>Hour</key>
-                    <integer>{starthour}</integer>
-                </dict>
-                '''.format(weekday=weekday, startminute=schedule['start-minute'], starthour=schedule['start-hour'])
-
-
-def install(config):
-    """ installs auto-selfcontrol """
-    print("> Start installation of Auto-SelfControl")
-
-    launchplist_path = "/Library/LaunchDaemons/com.parrot-bytes.auto-selfcontrol.plist"
-
-    # Check for existing plist
-    if os.path.exists(launchplist_path):
-        print("> Removed previous installation files")
-        subprocess.call(["launchctl", "unload", "-w", launchplist_path])
-        os.unlink(launchplist_path)
-
-    launchplist_script = get_launchscript(config)
-
-    with open(launchplist_path, 'w') as myfile:
-        myfile.write(launchplist_script)
-
-    subprocess.call(["launchctl", "load", "-w", launchplist_path])
-
-    print("> Installed\n")
-
-
-def check_config(config):
-    """ checks whether the config file is correct """
-    if "username" not in config:
-        exit_with_error("No username specified in config.")
-    if config["username"] not in get_osx_usernames():
-        exit_with_error(
-                "Username '{username}' unknown.\nPlease use your OSX username instead.\n" \
-                "If you have trouble finding it, just enter the command 'whoami'\n" \
-                "in your terminal.".format(
-                        username=config["username"]))
-    if "selfcontrol-path" not in config:
-        exit_with_error("The setting 'selfcontrol-path' is required and must point to the location of SelfControl.")
-    if not os.path.exists(config["selfcontrol-path"]):
-        exit_with_error(
-                "The setting 'selfcontrol-path' does not point to the correct location of SelfControl. " \
-                "Please make sure to use an absolute path and include the '.app' extension, " \
-                "e.g. /Applications/SelfControl.app")
-    if "block-schedules" not in config:
-        exit_with_error("The setting 'block-schedules' is required.")
-    if len(config["block-schedules"]) == 0:
-        exit_with_error("You need at least one schedule in 'block-schedules'.")
-    if config.get("host-blacklist", None) is None:
-        print("WARNING:")
-        msg = "It is not recommended to directly use SelfControl's blacklist. Please use the 'host-blacklist' " \
-              "setting instead."
-        print(msg)
-        syslog.syslog(syslog.LOG_WARNING, msg)
-
-
-def get_osx_usernames():
+def get_osx_usernames() -> List[str]:
     output = subprocess.check_output(["dscl", ".", "list", "/users"])
-    return [s.strip() for s in output.splitlines()]
+    return [s.strip().decode("utf-8") for s in output.splitlines()]
 
 
-def excepthook(excType, excValue, tb):
-    """ This function is called whenever an exception is not caught. """
-    err = "Uncaught exception:\n{}\n{}\n{}".format(str(excType), excValue,
-                                                   "".join(traceback.format_exception(excType, excValue, tb)))
-    syslog.syslog(syslog.LOG_CRIT, err)
-    print(err)
+def main() -> None:
+    HOME = os.environ["HOME"]
+    CONFIG_DIR = os.path.join(HOME, "dev/auto-selfcontrol")
+    CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 
+    if os.geteuid() != 0:
+        filename = os.path.realpath(__file__)
+        raise AutoSelfControlException(
+            f"Please make sure to run the script with elevated rights, such as:\nsudo python {filename} "
+        )
 
-def exit_with_error(message):
-    syslog.syslog(syslog.LOG_CRIT, message)
-    print("ERROR:")
-    print(message)
-    exit(1)
+    config = Config.from_file(CONFIG_FILE)
+
+    print("> Starting installation of Auto-SelfControl...")
+    if config.install() != 0:
+        print("> Installation failed.")
+        return
+    print("> Installed.")
+
+    print("> Starting SelfControl (this could take a few minutes)...")
+    try:
+        duration = config.run()
+        print(f"> SelfControl was started for {duration} minute(s).")
+    except (AlreadyRunningException, NoScheduleActiveException) as exc:
+        print(f"> {exc}")
+        return
 
 
 if __name__ == "__main__":
-    CONFIG_DIR = os.path.join('/usr/local/etc/auto-selfcontrol')
-    CONFIG_FILE = os.path.join(CONFIG_DIR, 'config.json')
-
-    sys.excepthook = excepthook
-
-    syslog.openlog("Auto-SelfControl")
-
-    if os.geteuid() != 0:
-        exit_with_error("Please make sure to run the script with elevated \
-                         rights, such as:\nsudo python {file} \
-                         ".format(file=os.path.realpath(__file__)))
-
-    PARSER = OptionParser()
-    PARSER.add_option("-r", "--run", action="store_true",
-                      dest="run", default=False)
-    (OPTS, ARGS) = PARSER.parse_args()
-    CONFIG = load_config([CONFIG_FILE])
-
-    if OPTS.run:
-        run(CONFIG)
-    else:
-        check_config(CONFIG)
-        install(CONFIG)
-        if not check_if_running(CONFIG["username"]) and \
-           any(s for s in CONFIG["block-schedules"] if is_schedule_active(s)):
-            print("> Active schedule found for SelfControl!")
-            print("> Start SelfControl (this could take a few minutes)\n")
-            run(CONFIG)
-            print("\n> SelfControl was started.\n")
+    main()
