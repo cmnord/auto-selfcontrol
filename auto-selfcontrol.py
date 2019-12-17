@@ -21,7 +21,7 @@ GITHUB_CONFIG = (
     "https://raw.githubusercontent.com/cmnord/auto-selfcontrol/master/config.json"
 )
 HOME = os.environ["HOME"]
-CONFIG_DIR = os.path.join(HOME, "dev/auto-selfcontrol")
+CONFIG_DIR = os.path.join(HOME, "auto-selfcontrol")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 
 
@@ -349,7 +349,7 @@ def config() -> int:
 
 if __name__ == "__main__":
     parser = ArgumentParser(
-        description="Auto-SelfControl (c) Andreas Grill\nSmall utility to schedule "
+        description="Auto-SelfControl (c) Andreas Grill. Small utility to schedule "
         "start and stop times of SelfControl. More instructions at "
         "https://github.com/cmnord/auto-selfcontrol"
     )
@@ -358,7 +358,7 @@ if __name__ == "__main__":
         choices=("config", "activate"),
         help="Open the schedule [config] file in a text editor to set up weekly "
         "parameters or [activate] the automatic start/stop of SelfControl according to "
-        "schedules defined in configuration",
+        "schedules defined in configuration.",
     )
 
     args = parser.parse_args()
