@@ -17,10 +17,13 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence
 
 
 LAUNCHLIST_PATH = "/Library/LaunchDaemons/com.parrot-bytes.auto-selfcontrol.plist"
-GITHUB_CONFIG = "https://raw.githubusercontent.com/cmnord/auto-selfcontrol/master/config.json"
+GITHUB_CONFIG = (
+    "https://raw.githubusercontent.com/cmnord/auto-selfcontrol/master/config.json"
+)
 HOME = os.environ["HOME"]
 CONFIG_DIR = os.path.join(HOME, "dev/auto-selfcontrol")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+
 
 class AutoSelfControlException(Exception):
     pass
@@ -96,7 +99,8 @@ class Schedule:
         return False
 
     def duration_minutes(self) -> int:
-        """Return the minutes left until the schedule's end-hour and end-minute are reached."""
+        """ Return the minutes left until the schedule's end-hour and end-minute are
+        reached. """
         now = datetime.datetime.today()
         endtime = datetime.datetime(
             now.year, now.month, now.day, self.end_hour, self.end_minute
@@ -244,8 +248,8 @@ class Config:
         elif self.host_blacklist is not None:
             set_selfcontrol_setting("HostBlacklist", self.host_blacklist, self.username)
 
-        # In legacy mode manually set the BlockStartedDate, this should not be required anymore in future versions
-        # of SelfControl.
+        # In legacy mode manually set the BlockStartedDate, this should not be required
+        # anymore in future versions of SelfControl.
         if self.legacy_mode is True:
             set_selfcontrol_setting("BlockStartedDate", NSDate.date(), self.username)
 
@@ -253,7 +257,8 @@ class Config:
         # TODO: injection vulnerability
         user_id = str(getpwnam(self.username).pw_uid)
         os.system(
-            f"{self.selfcontrol_path}/Contents/MacOS/org.eyebeam.SelfControl {user_id} --install"
+            f"{self.selfcontrol_path}/Contents/MacOS/org.eyebeam.SelfControl "
+            f"{user_id} --install"
         )
 
         return duration
@@ -301,7 +306,8 @@ def activate() -> None:
     if os.geteuid() != 0:
         filename = os.path.realpath(__file__)
         raise AutoSelfControlException(
-            f"Please make sure to run the script with elevated rights, such as:\nsudo python {filename} "
+            f"Please make sure to run the script with elevated rights, such as:\nsudo "
+            "python {filename}"
         )
 
     config = Config.from_file(CONFIG_FILE)
@@ -319,6 +325,7 @@ def activate() -> None:
     except (AlreadyRunningException, NoScheduleActiveException) as exc:
         print(f"> {exc}")
         return
+
 
 def config() -> int:
     # If no "config.json" in ~/.config/auto-selfcontrol/
@@ -338,6 +345,7 @@ def config() -> int:
         return subprocess.call([os.environ["EDITOR"], CONFIG_FILE])
     # Or with default GUI text editor (txt files > Open with...)
     return subprocess.call(["open", "-t", CONFIG_FILE])
+
 
 if __name__ == "__main__":
     parser = ArgumentParser(
