@@ -5,30 +5,33 @@ Small utility to schedule start and stop times of
 
 ## Purpose
 
-Auto-SelfControl helps you to create a weekly schedule for SelfControl. You can
-plan if and when SelfControl should start and stop for every weekday.
+Auto-SelfControl helps you create a weekly schedule for SelfControl. You can plan
+when SelfControl starts and stops every day.
 
 ## Installation
 
 If you already have SelfControl, start it and **back up your blacklist** as it
 may be overwritten by Auto-SelfControl.
 
-If you do not have SelfControl already installed on your system, you can
-install it with [Homebrew Cask](https://caskroom.github.io/):
+If you do not alredy have SelfControl, you can install it with [Homebrew
+Cask](https://caskroom.github.io/):
 
 ```sh
 brew cask install selfcontrol
 ```
 
-Download this repository to a directory on your system (e.g., `~/auto-selfcontrol/`).
+Next, download this repository to a directory on your system; e.g.
+`~/auto-selfcontrol/`.
 
 ```sh
-chmod +x auto-selfcontrol.py
+git clone https://github.com/cmnord/auto-selfcontrol.git ~/auto-selfcontrol
 ```
 
-Run from this specific repository
+Finally, run it from this specific repository.
 
 ```sh
+cd ~/auto-selfcontrol
+chmod +x auto-selfcontrol.py
 ./auto-selfcontrol.py --help
 ```
 
@@ -42,7 +45,7 @@ Edit the time configuration (see [Configuration](#configuration)) first:
 ./auto-selfcontrol.py config
 ```
 
-When your block-schedule in [`config.json`](config.json) is ready, activate it by
+When your block schedule in [`config.json`](config.json) is ready, activate it by
 running:
 
 ```sh
@@ -50,12 +53,16 @@ running:
 ```
 
 __Important:__ If you change [`config.json`](config.json) later, you have to call the
-`auto-selfcontrol activate` command again or Auto-SelfControl will not take the
+`./auto-selfcontrol.py activate` command again or Auto-SelfControl will not take the
 modifications into account!
 
 ## Uninstall
 
 Uninstall manually by removing the directory where you installed the files.
+
+```sh
+rm -rf ~/auto-selfcontrol
+```
 
 You also need to remove the automatic schedule by executing the following command in
 the Terminal:
@@ -67,7 +74,7 @@ sudo rm /Library/LaunchDaemons/com.parrot-bytes.auto-selfcontrol.plist
 ## Configuration
 
 The following listing shows an example `config.json` file that blocks every Monday
-from 9am to 5.30pm and on every Tuesday from 10am to 4pm:
+from 9am to 5:30pm and on every Tuesday from 10am to 4pm:
 
 ```json
 {
@@ -111,10 +118,10 @@ from 9am to 5.30pm and on every Tuesday from 10am to 4pm:
     start time, the block will last until the next day (see example below).
 
 Please note that it is possible to create multiple schedules on the same day as long
-as they are not overlapping. Have a look at the example below.
+as they do not overlap. Have a look at the example below.
 
-The following config blocks Twitter and Reddit every Sunday from 11pm until Monday
-5am, Monday from 9am until 7pm, and Monday from 10pm to 11pm:
+The following configuration blocks Twitter and Reddit every Sunday from 11pm until
+Monday 5am, Monday from 9am until 7pm, and Monday from 10pm to 11pm:
 
 ```json
 {
@@ -154,7 +161,7 @@ The following config blocks Twitter and Reddit every Sunday from 11pm until Mond
 
 ### ImportError: No module named Foundation
 
-This can occur if you've installed another version of Python (e.g., using Homebrew).
+This can occur if you've installed another version of Python; e.g. using Homebrew.
 
 __Solution 1__: install `pyobjc` on your own Python version via `pip install pyobjc`.
 
