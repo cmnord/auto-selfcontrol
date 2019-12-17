@@ -17,7 +17,7 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence
 
 
 LAUNCHLIST_PATH = "/Library/LaunchDaemons/com.parrot-bytes.auto-selfcontrol.plist"
-GITHUB_CONFIG = "https://raw.githubusercontent.com/andreasgrill/auto-selfcontrol/master/config.json"
+GITHUB_CONFIG = "https://raw.githubusercontent.com/cmnord/auto-selfcontrol/master/config.json"
 HOME = os.environ["HOME"]
 CONFIG_DIR = os.path.join(HOME, "dev/auto-selfcontrol")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
@@ -343,7 +343,7 @@ if __name__ == "__main__":
     parser = ArgumentParser(
         description="Auto-SelfControl (c) Andreas Grill\nSmall utility to schedule "
         "start and stop times of SelfControl. More instructions at "
-        "https://github.com/andreasgrill/auto-selfcontrol"
+        "https://github.com/cmnord/auto-selfcontrol"
     )
     parser.add_argument(
         "action",
