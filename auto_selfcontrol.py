@@ -70,42 +70,41 @@ class Schedule:
         )
 
     def weekdays(self) -> Sequence[int]:
-        """Return a list of weekdays the specified schedule is active."""
+        """Return the weekdays during which the specified schedule is active."""
         return [self.weekday] if self.weekday is not None else range(1, 8)
 
-    def is_active(self) -> bool:
-        """Check if we are right now in the provided schedule or not."""
-        now = datetime.datetime.today()
+    def is_active(self, today: datetime.datetime) -> bool:
+        """Check if we are currently in the provided schedule."""
         starttime = datetime.datetime(
-            now.year, now.month, now.day, self.start_hour, self.start_minute
+            today.year, today.month, today.day, self.start_hour, self.start_minute
         )
         endtime = datetime.datetime(
-            now.year, now.month, now.day, self.end_hour, self.end_minute
+            today.year, today.month, today.day, self.end_hour, self.end_minute
         )
         duration = endtime - starttime
 
         for weekday in self.weekdays():
-            weekday_diff = now.isoweekday() % 7 - weekday % 7
+            weekday_diff = today.isoweekday() % 7 - weekday % 7
             if weekday_diff == 0:
                 # schedule's weekday is today
                 return (
-                    starttime <= now and endtime >= now
+                    starttime <= today and endtime >= today
                     if duration.days == 0
-                    else starttime <= now
+                    else starttime <= today
                 )
             if weekday_diff == 1 or weekday_diff == -6:
                 # schedule's weekday was yesterday
-                return duration.days != 0 and now <= endtime
+                return duration.days != 0 and today <= endtime
         return False
 
     def duration_minutes(self) -> int:
         """ Return the minutes left until the schedule's end-hour and end-minute are
         reached. """
-        now = datetime.datetime.today()
+        today = datetime.datetime.today()
         endtime = datetime.datetime(
-            now.year, now.month, now.day, self.end_hour, self.end_minute
+            today.year, today.month, today.day, self.end_hour, self.end_minute
         )
-        duration = endtime - now
+        duration = endtime - today
         return int(round(duration.seconds / 60.0))
 
 
@@ -227,7 +226,8 @@ class Config:
             raise AlreadyRunningException("SelfControl is already running.")
 
         try:
-            schedule = next(s for s in self.block_schedules if s.is_active())
+            today = datetime.datetime.today()
+            schedule = next(s for s in self.block_schedules if s.is_active(today))
         except StopIteration:
             raise NoScheduleActiveException(
                 "No schedule is active at the moment. Shutting down."
