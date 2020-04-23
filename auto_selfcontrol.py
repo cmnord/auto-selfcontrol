@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 from argparse import ArgumentParser
 import datetime
@@ -188,7 +188,7 @@ class Config:
             <string>com.parrot-bytes.auto-selfcontrol</string>
             <key>ProgramArguments</key>
             <array>
-                <string>/usr/bin/python</string>
+                <string>/usr/bin/env python3</string>
                 <string>{path}</string>
                 <string>-r</string>
             </array>
