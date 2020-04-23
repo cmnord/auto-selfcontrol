@@ -190,7 +190,7 @@ class Config:
             <array>
                 <string>/usr/bin/env python3</string>
                 <string>{path}</string>
-                <string>-r</string>
+                <string>activate</string>
             </array>
             <key>StartCalendarInterval</key>
             <array>
