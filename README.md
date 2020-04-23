@@ -31,8 +31,8 @@ Finally, run it from this specific repository.
 
 ```sh
 cd ~/auto-selfcontrol
-chmod +x auto-selfcontrol.py
-./auto-selfcontrol.py --help
+chmod +x auto_selfcontrol.py
+./auto_selfcontrol.py --help
 ```
 
 Or create a symlink in your `/usr/local/bin` folder to access it from anywhere.
@@ -42,18 +42,18 @@ Or create a symlink in your `/usr/local/bin` folder to access it from anywhere.
 Edit the time configuration (see [Configuration](#configuration)) first:
 
 ```sh
-./auto-selfcontrol.py config
+./auto_selfcontrol.py config
 ```
 
 When your block schedule in [`config.json`](config.json) is ready, activate it by
 running:
 
 ```sh
-./auto-selfcontrol.py activate
+./auto_selfcontrol.py activate
 ```
 
 __Important:__ If you change [`config.json`](config.json) later, you have to call the
-`./auto-selfcontrol.py activate` command again or Auto-SelfControl will not take the
+`./auto_selfcontrol.py activate` command again or Auto-SelfControl will not take the
 modifications into account!
 
 ## Uninstall
@@ -166,7 +166,7 @@ This can occur if you've installed another version of Python; e.g. using Homebre
 __Solution 1__: install `pyobjc` on your own Python version via `pip install pyobjc`.
 
 __Solution 2__: Run Auto-SelfControl with the original Python installation from macOS
-via `sudo /usr/bin/python auto-selfcontrol.py`.
+via `sudo /usr/bin/python auto_selfcontrol.py`.
 
 [See this thread for alternative
 solutions](https://stackoverflow.com/questions/1614648/importerror-no-module-named-foundation#1616361).
