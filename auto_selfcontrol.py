@@ -50,21 +50,25 @@ class ConfigException(AutoSelfControlException):
 @dataclass
 class Schedule:
     weekday: Optional[int]
-    start_hour: int
-    start_minute: int
-    end_hour: int
-    end_minute: int
+    start_time: datetime.time
+    end_time: datetime.time
     block_as_whitelist: Optional[bool]
     host_blacklist: Optional[List[str]]
 
     @staticmethod
     def from_config(config: Dict[str, Any]) -> "Schedule":
+        start_hour = config["start-hour"]
+        start_minute = config["start-minute"]
+        start_time = datetime.time(start_hour, start_minute)
+
+        end_hour = config["end-hour"]
+        end_minute = config["end-minute"]
+        end_time = datetime.time(end_hour, end_minute)
+
         return Schedule(
             weekday=config.get("weekday"),
-            start_hour=config["start-hour"],
-            start_minute=config["start-minute"],
-            end_hour=config["end-hour"],
-            end_minute=config["end-minute"],
+            start_time=start_time,
+            end_time=end_time,
             block_as_whitelist=config.get("block-as-whitelist"),
             host_blacklist=config.get("host-blacklist"),
         )
@@ -73,37 +77,30 @@ class Schedule:
         """Return the weekdays during which the specified schedule is active."""
         return [self.weekday] if self.weekday is not None else range(1, 8)
 
-    def is_active(self, today: datetime.datetime) -> bool:
-        """Check if we are currently in the provided schedule."""
-        starttime = datetime.datetime(
-            today.year, today.month, today.day, self.start_hour, self.start_minute
-        )
-        endtime = datetime.datetime(
-            today.year, today.month, today.day, self.end_hour, self.end_minute
-        )
-        duration = endtime - starttime
+    def is_active(self, now: datetime.datetime) -> bool:
+        """Check if this Schedule contains the given time."""
+        # Common case 1: schedule does not go overnight
+        if self.start_time <= self.end_time:
+            if now.isoweekday() not in self.weekdays():
+                return False
 
-        for weekday in self.weekdays():
-            weekday_diff = today.isoweekday() % 7 - weekday % 7
-            if weekday_diff == 0:
-                # schedule's weekday is today
-                return (
-                    starttime <= today and endtime >= today
-                    if duration.days == 0
-                    else starttime <= today
-                )
-            if weekday_diff == 1 or weekday_diff == -6:
-                # schedule's weekday was yesterday
-                return duration.days != 0 and today <= endtime
+            start_datetime = datetime.datetime.combine(now.date(), self.start_time)
+            end_datetime = datetime.datetime.combine(now.date(), self.end_time)
+            return start_datetime <= now <= end_datetime
+        # Case 2: schedule goes overnight, now is in first day
+        if now.isoweekday() in self.weekdays() and now.time() >= self.start_time:
+            return True
+        # Case 3: schedule goes overnight, now is in second day
+        yesterday = (now.isoweekday() - 1) % 7
+        if yesterday in self.weekdays() and now.time() <= self.end_time:
+            return True
         return False
 
     def duration_minutes(self) -> int:
         """ Return the minutes left until the schedule's end-hour and end-minute are
         reached. """
         today = datetime.datetime.today()
-        endtime = datetime.datetime(
-            today.year, today.month, today.day, self.end_hour, self.end_minute
-        )
+        endtime = datetime.datetime.combine(today, self.end_time)
         duration = endtime - today
         return int(round(duration.seconds / 60.0))
 
@@ -173,9 +170,9 @@ class Config:
                         <key>Weekday</key>
                         <integer>{weekday}</integer>
                         <key>Minute</key>
-                        <integer>{schedule.start_minute}</integer>
+                        <integer>{schedule.start_time.minute}</integer>
                         <key>Hour</key>
-                        <integer>{schedule.start_hour}</integer>
+                        <integer>{schedule.start_time.hour}</integer>
                     </dict>
                     """
 
@@ -226,8 +223,9 @@ class Config:
             raise AlreadyRunningException("SelfControl is already running.")
 
         try:
-            today = datetime.datetime.today()
-            schedule = next(s for s in self.block_schedules if s.is_active(today))
+            now = datetime.datetime.now()
+            schedule = next(s for s in self.block_schedules if s.is_active(now))
+            print("> Using schedule", schedule)
         except StopIteration:
             raise NoScheduleActiveException(
                 "No schedule is active at the moment. Shutting down."
@@ -235,6 +233,8 @@ class Config:
 
         duration = schedule.duration_minutes()
         set_selfcontrol_setting("BlockDuration", duration, self.username)
+        print("> Set BlockDuration to", duration)
+
         set_selfcontrol_setting(
             "BlockAsWhitelist",
             1 if schedule.block_as_whitelist is True else 0,
@@ -247,6 +247,7 @@ class Config:
             )
         elif self.host_blacklist is not None:
             set_selfcontrol_setting("HostBlacklist", self.host_blacklist, self.username)
+        print("> Set host blacklist")
 
         # In legacy mode manually set the BlockStartedDate, this should not be required
         # anymore in future versions of SelfControl.
